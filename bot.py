@@ -10,7 +10,6 @@ from telegram.ext import (
 )
 
 TOKEN = "8732864420:AAFgNLzg5GKJ8F63anr_SmKPygpRvSX27Tc"
-
 user_data = {}
 
 # ------------------ Функції бота ------------------
@@ -36,18 +35,24 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
+    # Вибір тесту
     if text in ["Тест 1", "Тест 2", "Тест 3"]:
-    file = f"test{text[-1]}.txt"  
-    questions = load_questions(file)
-    random.shuffle(questions)
-    user_data[user_id] = {"questions": questions, "index": 0, "score": 0}
-    await update.message.reply_text("Починаємо тест!\n\n" + questions[0]["question"])
-    return
+        file = f"test{text[-1]}.txt"  # test1.txt, test2.txt, test3.txt
+        if not os.path.exists(file):
+            await update.message.reply_text(f"Файл {file} не знайдено!")
+            return
+        questions = load_questions(file)
+        random.shuffle(questions)
+        user_data[user_id] = {"questions": questions, "index": 0, "score": 0}
+        await update.message.reply_text("Починаємо тест!\n\n" + questions[0]["question"])
+        return
 
+    # Якщо користувач ще не обрав тест
     if user_id not in user_data:
         await update.message.reply_text("Натисни /start і обери тест")
         return
 
+    # Обробка відповіді
     data = user_data[user_id]
     current = data["index"]
     questions = data["questions"]
@@ -79,7 +84,7 @@ if __name__ == "__main__":
     app_bot.add_handler(CommandHandler("start", start))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Запускаємо webhook
+    # Запуск webhook
     app_bot.run_webhook(
         listen="0.0.0.0",
         port=port,
