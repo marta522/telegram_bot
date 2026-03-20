@@ -35,24 +35,51 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
-    # Вибір тесту
+    # ---------------- Вибір тесту ----------------
     if text in ["Тест 1", "Тест 2", "Тест 3"]:
-        file = f"test{text[-1]}.txt"  # test1.txt, test2.txt, test3.txt
+        file = f"test{text[-1]}.txt"
         if not os.path.exists(file):
             await update.message.reply_text(f"Файл {file} не знайдено!")
             return
+
         questions = load_questions(file)
         random.shuffle(questions)
-        user_data[user_id] = {"questions": questions, "index": 0, "score": 0}
+
+        user_data[user_id] = {
+            "questions": questions,
+            "index": 0,
+            "score": 0,
+            "wrong": []  # зберігаємо неправильні
+        }
+
         await update.message.reply_text("Починаємо тест!\n\n" + questions[0]["question"])
         return
 
-    # Якщо користувач ще не обрав тест
+    # ---------------- Повтор неправильних ----------------
+    if text == "Повторити помилки":
+        data = user_data.get(user_id)
+        if not data or not data.get("wrong"):
+            await update.message.reply_text("Немає помилок для повторення 🙂")
+            return
+
+        data["questions"] = data["wrong"]
+        data["wrong"] = []
+        data["index"] = 0
+        data["score"] = 0
+        await update.message.reply_text("Повторюємо помилки!\n\n" + data["questions"][0]["question"])
+        return
+
+    # ---------------- Пройти ще раз ----------------
+    if text == "Пройти ще раз":
+        await start(update, context)
+        return
+
+    # ---------------- Якщо тест не обрано ----------------
     if user_id not in user_data:
         await update.message.reply_text("Натисни /start і обери тест")
         return
 
-    # Обробка відповіді
+    # ---------------- Обробка відповіді ----------------
     data = user_data[user_id]
     current = data["index"]
     questions = data["questions"]
@@ -63,31 +90,28 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("✅ Правильно!")
     else:
         await update.message.reply_text(f"❌ Неправильно! Правильна відповідь: {correct}")
+        data["wrong"].append(questions[current])
 
     data["index"] += 1
+
+    # ---------------- Наступне питання або результат ----------------
     if data["index"] < len(questions):
         await update.message.reply_text(questions[data["index"]]["question"])
     else:
-        await update.message.reply_text(f"🎉 Тест завершено!\nРезультат: {data['score']}/{len(questions)}")
-        del user_data[user_id]
+        score = data["score"]
+        total = len(questions)
 
-# ------------------ Запуск бота через webhook ------------------
-
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    public_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if not public_url:
-        print("⚠️ Не знайдено RENDER_EXTERNAL_URL. Вебхук працювати не буде!")
-        exit(1)
-
-    app_bot = ApplicationBuilder().token(TOKEN).build()
-    app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    # Запуск webhook
-    app_bot.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path=TOKEN,
-        webhook_url=f"{public_url}/{TOKEN}"
-    )
+        if data["wrong"]:  # якщо були помилки
+            keyboard = [["Повторити помилки"], ["Пройти ще раз"]]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            await update.message.reply_text(
+                f"Тест завершено!\nРезультат: {score}/{total}\nХочеш повторити помилки?",
+                reply_markup=reply_markup
+            )
+        else:  # якщо всі відповіді правильні
+            keyboard = [["Пройти ще раз"]]
+            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+            await update.message.reply_text(
+                f"🎉 Ідеально! {score}/{total}\nМожеш пройти тест ще раз:",
+                reply_markup=reply_markup
+            )
