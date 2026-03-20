@@ -1,6 +1,5 @@
 import os
 import random
-import json
 import logging
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -12,24 +11,13 @@ from telegram.ext import (
 )
 
 TOKEN = "8732864420:AAFgNLzg5GKJ8F63anr_SmKPygpRvSX27Tc"
-user_data = {}
-STATS_FILE = "stats.json"
+user_data = {}  # дані користувачів
+stats = {}      # статистика користувачів
+
 logging.basicConfig(level=logging.INFO)
 
-# ------------------ Робота зі статистикою ------------------
-def load_stats():
-    if os.path.exists(STATS_FILE):
-        with open(STATS_FILE, "r", encoding="utf-8") as f:
-            return json.load(f)
-    return {}
-
-def save_stats(stats):
-    with open(STATS_FILE, "w", encoding="utf-8") as f:
-        json.dump(stats, f, ensure_ascii=False, indent=2)
-
-stats = load_stats()
-
 # ------------------ Функції бота ------------------
+
 def load_questions(filename):
     questions = []
     with open(filename, "r", encoding="utf-8") as f:
@@ -51,7 +39,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     text = update.message.text.strip()
 
-    # ------------------ Обробка кнопки "Статистика" ------------------
+    # ------------------ Кнопки управління ------------------
     if text == "Статистика":
         user_stats = stats.get(str(user_id), {})
         output = []
@@ -62,17 +50,41 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("\n".join(output))
         return
 
-    # ------------------ Обробка кнопки "Поки що все" або "Продовжити" ------------------
-    if user_id in user_data and "pause" in user_data[user_id]:
+    if user_id in user_data and user_data[user_id].get("paused"):
         data = user_data[user_id]
         if text == "Продовжити":
+            data.pop("paused")
             keyboard = [["Тест 1", "Тест 2"], ["Тест 3"]]
             reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-            del data["pause"]
             await update.message.reply_text("Обери тест:", reply_markup=reply_markup)
             return
         else:
-            await update.message.reply_text("Натисни 'Продовжити', коли будеш готовий.")
+            await update.message.reply_text("Натисни 'Продовжити', щоб обрати тест.")
+            return
+
+    if user_id in user_data and "repeat_options" in user_data[user_id]:
+        data = user_data[user_id]
+        if text == "Пройти тест ще раз":
+            data["questions"] = data["all_questions"][:]
+            random.shuffle(data["questions"])
+            data["index"] = 0
+            data["score"] = 0
+            data["wrong"] = []
+            del data["repeat_options"]
+            await update.message.reply_text("Починаємо тест знову!\n\n" + data["questions"][0]["question"])
+            return
+        elif text == "Повторити помилки":
+            if not data["wrong"]:
+                await update.message.reply_text("Немає помилок для повтору. Пройдемо тест заново.")
+                data["questions"] = data["all_questions"][:]
+            else:
+                data["questions"] = data["wrong"][:]
+            random.shuffle(data["questions"])
+            data["index"] = 0
+            data["score"] = 0
+            data["wrong"] = []
+            del data["repeat_options"]
+            await update.message.reply_text("Повторюємо тільки помилки!\n\n" + data["questions"][0]["question"])
             return
 
     # ------------------ Вибір тесту ------------------
@@ -89,7 +101,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "index": 0,
             "score": 0,
             "wrong": [],
-            "test_number": text[-1]
         }
         await update.message.reply_text("Починаємо тест!\n\n" + questions[0]["question"])
         return
@@ -97,6 +108,15 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ------------------ Якщо тест ще не обраний ------------------
     if user_id not in user_data:
         await update.message.reply_text("Натисни /start і обери тест")
+        return
+
+    # ------------------ Кнопка Поки що все ------------------
+    if text == "Поки що все":
+        data = user_data[user_id]
+        data["paused"] = True
+        keyboard = [["Продовжити"]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text("Перерва! Натисни 'Продовжити', коли будеш готовий.", reply_markup=reply_markup)
         return
 
     # ------------------ Обробка відповіді ------------------
@@ -115,49 +135,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     # ------------------ Наступне питання або завершення ------------------
     data["index"] += 1
     if data["index"] < len(questions):
-        await update.message.reply_text(questions[data["index"]]["question"])
+        # додаємо кнопки вибору тестів + статистику + поки що все
+        keyboard = [["Тест 1", "Тест 2"], ["Тест 3"], ["Статистика", "Поки що все"]]
+        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+        await update.message.reply_text(questions[data["index"]]["question"], reply_markup=reply_markup)
     else:
-        # ------------------ Оновлюємо статистику ------------------
-        user_stats = stats.get(str(user_id), {})
-        key_done = f"test{data['test_number']}_done"
-        prev_done = user_stats.get(key_done, 0)
-        # Запам'ятовуємо максимальну кількість правильних відповідей
-        user_stats[key_done] = max(prev_done, data["score"])
-        user_stats[f"test{data['test_number']}_all"] = len(data["all_questions"])
-        stats[str(user_id)] = user_stats
-        save_stats(stats)
-
         await update.message.reply_text(f"🎉 Тест завершено!\nРезультат: {data['score']}/{len(questions)}")
-
-        # ------------------ Пропонуємо дії після тесту ------------------
-        keyboard = []
-        if data["wrong"]:
-            keyboard.append(["Повторити помилки"])
-        keyboard.append(["Пройти тест ще раз"])
-        for i in range(1, 4):
-            if str(i) != data["test_number"]:
-                keyboard.append([f"Тест {i}"])
-        keyboard.append(["Статистика"])
-        keyboard.append(["Поки що все"])
+        # Запам’ятовуємо статистику
+        user_stats = stats.setdefault(str(user_id), {})
+        key_done = f"test{questions[0]['question'][-1]}_done"  # можна покращити підрахунок
+        key_all = f"test{questions[0]['question'][-1]}_all"
+        user_stats[key_done] = data["score"]
+        user_stats[key_all] = len(questions)
+        # Пропонуємо повторити або інші тести
+        keyboard = [["Пройти тест ще раз", "Поки що все"], ["Повторити помилки"], ["Тест 1", "Тест 2", "Тест 3"], ["Статистика"]]
+        # прибираємо вибір поточного тесту для кнопок
+        current_test = data["all_questions"][0]["question"][-1]
+        keyboard[2] = [t for t in keyboard[2] if t != f"Тест {current_test}"]
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         await update.message.reply_text("Що хочеш зробити далі?", reply_markup=reply_markup)
         data["repeat_options"] = True
-
-# ------------------ Запуск бота через webhook ------------------
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 5000))
-    public_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if not public_url:
-        print("⚠️ Не знайдено RENDER_EXTERNAL_URL. Вебхук працювати не буде!")
-        exit(1)
-
-    app_bot = ApplicationBuilder().token(TOKEN).build()
-    app_bot.add_handler(CommandHandler("start", start))
-    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-    app_bot.run_webhook(
-        listen="0.0.0.0",
-        port=port,
-        url_path=TOKEN,
-        webhook_url=f"{public_url}/{TOKEN}"
-    )
