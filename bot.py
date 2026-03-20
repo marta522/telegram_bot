@@ -10,7 +10,8 @@ from telegram.ext import (
     ContextTypes
 )
 
-TOKEN = "ТУТ_СВІЙ_ТОКЕН"
+TOKEN = "8732864420:AAFgNLzg5GKJ8F63anr_SmKPygpRvSX27Tc"
+user_data = {}  # Ключ: user_id, значення: прогрес по к"
 user_data = {}
 
 logging.basicConfig(level=logging.INFO)
