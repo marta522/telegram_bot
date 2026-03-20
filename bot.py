@@ -11,14 +11,13 @@ from telegram.ext import (
 )
 
 TOKEN = "8732864420:AAFgNLzg5GKJ8F63anr_SmKPygpRvSX27Tc"
-user_data = {}  # Ключ: user_id, значення: прогрес по к"
 user_data = {}
 
 logging.basicConfig(level=logging.INFO)
 
 TESTS = ["Тест 1", "Тест 2", "Тест 3"]
 
-# ------------------ Функції ------------------
+# ------------------ ФУНКЦІЇ ------------------
 
 def load_questions(filename):
     questions = []
@@ -30,6 +29,7 @@ def load_questions(filename):
             answer = lines[-1].replace("ANSWER:", "").strip().upper()
             questions.append({"question": q_text, "answer": answer})
     return questions
+
 
 def get_keyboard(current_test=None, paused=False):
     keyboard = []
@@ -48,7 +48,10 @@ def get_keyboard(current_test=None, paused=False):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     keyboard = [["Тест 1", "Тест 2"], ["Тест 3"]]
-    await update.message.reply_text("Обери тест:", reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True))
+    await update.message.reply_text(
+        "Обери тест:",
+        reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+    )
 
 # ------------------ HANDLE ------------------
 
@@ -61,21 +64,30 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ------------------ ПРОДОВЖИТИ ------------------
     if text == "Продовжуємо":
-        for t in TESTS:
-            if t in user_data[user_id] and user_data[user_id][t].get("paused"):
-                data = user_data[user_id][t]
-                data["paused"] = False
+        current_test = user_data[user_id].get("active_test")
 
-                await update.message.reply_text(
-                    "Продовжуємо:\n\n" + data["questions"][data["index"]]["question"],
-                    reply_markup=get_keyboard(t)
-                )
-                return
+        if not current_test:
+            await update.message.reply_text("Немає активного тесту.")
+            return
+
+        data = user_data[user_id][current_test]
+
+        if data["index"] >= len(data["questions"]):
+            await update.message.reply_text("Тест вже завершено.")
+            return
+
+        data["paused"] = False
+
+        await update.message.reply_text(
+            "Продовжуємо:\n\n" + data["questions"][data["index"]]["question"],
+            reply_markup=get_keyboard(current_test)
+        )
         return
 
     # ------------------ ВИБІР ТЕСТУ ------------------
     if text in TESTS:
         current_test = text
+        user_data[user_id]["active_test"] = current_test
 
         if current_test not in user_data[user_id]:
             file = f"test{current_test[-1]}.txt"
@@ -98,6 +110,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         data = user_data[user_id][current_test]
 
+        if data["index"] >= len(data["questions"]):
+            await update.message.reply_text("Тест вже завершено. Обери дію нижче.")
+            return
+
         await update.message.reply_text(
             data["questions"][data["index"]]["question"],
             reply_markup=get_keyboard(current_test)
@@ -106,15 +122,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     # ------------------ ПАУЗА ------------------
     if text == "Поки що все":
-        for t in TESTS:
-            if t in user_data[user_id] and not user_data[user_id][t].get("paused"):
-                user_data[user_id][t]["paused"] = True
+        current_test = user_data[user_id].get("active_test")
 
-                await update.message.reply_text(
-                    "⏸️ Пауза. Натисни 'Продовжуємо', щоб повернутись.",
-                    reply_markup=get_keyboard(paused=True)
-                )
-                return
+        if not current_test:
+            return
+
+        data = user_data[user_id][current_test]
+        data["paused"] = True
+
+        await update.message.reply_text(
+            "⏸️ Пауза. Натисни 'Продовжуємо', щоб повернутись.",
+            reply_markup=get_keyboard(paused=True)
+        )
         return
 
     # ------------------ ПОВТОРИТИ ПОМИЛКИ ------------------
@@ -138,6 +157,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data["wrong"] = []
         data["paused"] = False
 
+        user_data[user_id]["active_test"] = last_test
+
         await update.message.reply_text(
             "Повторюємо помилки:\n\n" + data["questions"][0]["question"],
             reply_markup=get_keyboard(last_test)
@@ -160,6 +181,8 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data["wrong"] = []
         data["paused"] = False
 
+        user_data[user_id]["active_test"] = last_test
+
         await update.message.reply_text(
             "Починаємо заново:\n\n" + data["questions"][0]["question"],
             reply_markup=get_keyboard(last_test)
@@ -167,18 +190,21 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ------------------ ВІДПОВІДЬ ------------------
-    current_test = None
-
-    for t in TESTS:
-        if t in user_data[user_id] and not user_data[user_id][t].get("paused"):
-            current_test = t
-            break
+    current_test = user_data[user_id].get("active_test")
 
     if not current_test:
-        await update.message.reply_text("Обери тест або продовжуй.")
+        await update.message.reply_text("Обери тест.")
         return
 
     data = user_data[user_id][current_test]
+
+    if data["paused"]:
+        await update.message.reply_text("Натисни 'Продовжуємо'.")
+        return
+
+    if data["index"] >= len(data["questions"]):
+        await update.message.reply_text("Тест вже завершено.")
+        return
 
     correct = data["questions"][data["index"]]["answer"]
 
@@ -217,6 +243,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
 
         data["paused"] = True
+        data["index"] = len(data["questions"])
 
 # ------------------ WEBHOOK ------------------
 
