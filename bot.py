@@ -30,27 +30,6 @@ def load_questions(filename):
             questions.append({"question": q_text, "answer": answer})
     return questions
 
-# Парсинг варіантів відповіді з тексту питання
-def parse_answers(question_text):
-    options = []
-    for line in question_text.split("\n"):
-        line = line.strip()
-        if len(line) > 2 and line[1] == ".":  # формат: A. текст
-            options.append(line[0].upper())
-    return options
-
-def dynamic_answer_keyboard(question_text):
-    options = parse_answers(question_text)
-    keyboard = []
-    row = []
-    for i, opt in enumerate(options, 1):
-        row.append(opt)
-        if i % 3 == 0:
-            keyboard.append(row)
-            row = []
-    if row:
-        keyboard.append(row)
-    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 def get_keyboard(current_test=None, paused=False):
     keyboard = []
@@ -101,7 +80,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(
             "Продовжуємо:\n\n" + data["questions"][data["index"]]["question"],
-            reply_markup=dynamic_answer_keyboard(data["questions"][data["index"]]["question"])
+            reply_markup=get_keyboard(current_test)
         )
         return
 
@@ -137,7 +116,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(
             data["questions"][data["index"]]["question"],
-            reply_markup=dynamic_answer_keyboard(data["questions"][data["index"]]["question"])
+            reply_markup=get_keyboard(current_test)
         )
         return
 
@@ -182,7 +161,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(
             "Повторюємо помилки:\n\n" + data["questions"][0]["question"],
-            reply_markup=dynamic_answer_keyboard(data["questions"][0]["question"])
+            reply_markup=get_keyboard(last_test)
         )
         return
 
@@ -206,7 +185,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
         await update.message.reply_text(
             "Починаємо заново:\n\n" + data["questions"][0]["question"],
-            reply_markup=dynamic_answer_keyboard(data["questions"][0]["question"])
+            reply_markup=get_keyboard(last_test)
         )
         return
 
@@ -227,10 +206,9 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Тест вже завершено.")
         return
 
-    correct = data["questions"][data["index"]]["answer"].upper()
+    correct = data["questions"][data["index"]]["answer"]
 
-    # Перевірка відповіді незалежно від регістру, українська/англійська
-    if text.strip().upper() == correct:
+    if text.upper() == correct:
         data["score"] += 1
         await update.message.reply_text("✅ Правильно!")
     else:
@@ -242,7 +220,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data["index"] < len(data["questions"]):
         await update.message.reply_text(
             data["questions"][data["index"]]["question"],
-            reply_markup=dynamic_answer_keyboard(data["questions"][data["index"]]["question"])
+            reply_markup=get_keyboard(current_test)
         )
     else:
         await update.message.reply_text(
