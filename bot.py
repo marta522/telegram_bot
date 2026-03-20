@@ -139,7 +139,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         return
 
     # ------------------ ПАУЗА ------------------
-    if text == "Поки що все":
+    if text == "Пауза":
         current_test = user_data[user_id].get("active_test")
         if not current_test:
             return
