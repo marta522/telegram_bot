@@ -39,10 +39,9 @@ def get_keyboard(test=None, paused=False, in_main_menu=False, in_test_menu=False
         keyboard.append(["Продовжуємо"])
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
-    # Тест → кнопки A/B/C/D/E + Поки що все + Головне меню
+    # Тест → кнопки A/B/C/D/E горизонтально + Поки що все + Головне меню
     if in_test_menu:
-        for a in ANSWERS:
-            keyboard.append([a])
+        keyboard.append(ANSWERS)  # горизонтальний рядок
         keyboard.append(["Поки що все", "Головне меню"])
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
@@ -80,7 +79,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not current_test:
             await update.message.reply_text("Немає тесту для повернення.")
             return
-
         data = user_data[user_id][current_test]
         # відновлюємо останнє питання
         await update.message.reply_text(
