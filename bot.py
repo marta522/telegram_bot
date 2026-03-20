@@ -42,7 +42,7 @@ def get_keyboard(test=None, paused=False, in_main_menu=False, in_test_menu=False
     # Тест → кнопки A/B/C/D/E горизонтально + Поки що все + Головне меню
     if in_test_menu:
         keyboard.append(ANSWERS)  # горизонтальний рядок
-        keyboard.append(["Поки що все", "Головне меню"])
+        keyboard.append(["Пауза", "Головне меню"])
         return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
     # Головне меню
