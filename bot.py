@@ -16,7 +16,7 @@ user_data = {}
 logging.basicConfig(level=logging.INFO)
 
 TESTS = ["Тест 1", "Тест 2", "Тест 3"]
-OPTIONS = ["A", "B", "C", "D", "E"]  # Кнопки для відповідей
+ANSWERS = ["A", "B", "C", "D", "E"]
 
 # ------------------ ФУНКЦІЇ ------------------
 
@@ -31,21 +31,38 @@ def load_questions(filename):
             questions.append({"question": q_text, "answer": answer})
     return questions
 
-def main_menu_keyboard():
-    return ReplyKeyboardMarkup([["Тест 1", "Тест 2", "Тест 3"], ["Назад"]], resize_keyboard=True)
+def get_keyboard(test=None, paused=False, in_main_menu=False, in_test_menu=False):
+    keyboard = []
 
-def question_keyboard(paused=False):
+    # Пауза → лише продовжуємо
     if paused:
-        return ReplyKeyboardMarkup([["Продовжуємо"], ["Головне меню"]], resize_keyboard=True)
-    else:
-        return ReplyKeyboardMarkup([OPTIONS, ["Поки що все"], ["Головне меню"]], resize_keyboard=True)
+        keyboard.append(["Продовжуємо"])
+        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    # Тест → кнопки A/B/C/D/E + Поки що все + Головне меню
+    if in_test_menu:
+        for a in ANSWERS:
+            keyboard.append([a])
+        keyboard.append(["Поки що все", "Головне меню"])
+        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    # Головне меню
+    if in_main_menu:
+        for t in TESTS:
+            keyboard.append([t])
+        # якщо ми з тесту → кнопка Назад
+        if test:
+            keyboard.append(["Назад"])
+        return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
 # ------------------ START ------------------
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
         "Обери тест:",
-        reply_markup=main_menu_keyboard()
+        reply_markup=get_keyboard(in_main_menu=True)
     )
 
 # ------------------ HANDLE ------------------
@@ -57,25 +74,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_data:
         user_data[user_id] = {}
 
-    # ------------------ НАЗАД ------------------
+    # ------------------ ПОВЕРНЕННЯ З ГОЛОВНОГО МЕНЮ ------------------
     if text == "Назад":
-        previous = user_data[user_id].get("previous_keyboard")
-        if previous:
-            await update.message.reply_text(
-                "Повернулися до тесту:",
-                reply_markup=previous
-            )
-        return
-
-    # ------------------ ГОЛОВНЕ МЕНЮ ------------------
-    if text == "Головне меню":
-        # Зберігаємо попередню клавіатуру для кнопки Назад
         current_test = user_data[user_id].get("active_test")
-        if current_test and current_test in user_data[user_id]:
-            user_data[user_id]["previous_keyboard"] = question_keyboard(paused=user_data[user_id][current_test]["paused"])
+        if not current_test:
+            await update.message.reply_text("Немає тесту для повернення.")
+            return
+
+        data = user_data[user_id][current_test]
+        # відновлюємо останнє питання
         await update.message.reply_text(
-            "Головне меню:",
-            reply_markup=main_menu_keyboard()
+            f"Повернулися до тесту:\n\n{data['questions'][data['index']-1]['question'] if data['index']>0 else data['questions'][0]['question']}",
+            reply_markup=get_keyboard(in_test_menu=True)
         )
         return
 
@@ -87,12 +97,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
         data = user_data[user_id][current_test]
         data["paused"] = False
-        if data["index"] >= len(data["questions"]):
-            await update.message.reply_text("Тест уже завершено.")
-            return
         await update.message.reply_text(
             "Продовжуємо:\n\n" + data["questions"][data["index"]]["question"],
-            reply_markup=question_keyboard()
+            reply_markup=get_keyboard(in_test_menu=True)
+        )
+        return
+
+    # ------------------ ГОЛОВНЕ МЕНЮ ------------------
+    if text == "Головне меню":
+        current_test = user_data[user_id].get("active_test")
+        await update.message.reply_text(
+            "Головне меню:",
+            reply_markup=get_keyboard(test=current_test, in_main_menu=True)
         )
         return
 
@@ -100,6 +116,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text in TESTS:
         current_test = text
         user_data[user_id]["active_test"] = current_test
+
         if current_test not in user_data[user_id]:
             file = f"test{current_test[-1]}.txt"
             if not os.path.exists(file):
@@ -115,13 +132,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "wrong": [],
                 "paused": False
             }
+
         data = user_data[user_id][current_test]
-        if data["index"] >= len(data["questions"]):
-            await update.message.reply_text("Тест уже завершено. Обери дію нижче.")
-            return
         await update.message.reply_text(
             data["questions"][data["index"]]["question"],
-            reply_markup=question_keyboard()
+            reply_markup=get_keyboard(in_test_menu=True)
         )
         return
 
@@ -134,7 +149,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data["paused"] = True
         await update.message.reply_text(
             "⏸️ Пауза. Натисни 'Продовжуємо', щоб повернутись.",
-            reply_markup=question_keyboard(paused=True)
+            reply_markup=get_keyboard(paused=True)
         )
         return
 
@@ -157,11 +172,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data[user_id]["active_test"] = last_test
         await update.message.reply_text(
             "Повторюємо помилки:\n\n" + data["questions"][0]["question"],
-            reply_markup=question_keyboard()
+            reply_markup=get_keyboard(in_test_menu=True)
         )
         return
 
-    # ------------------ ПРОЙТИ ТЕСТ ЗНОВУ ------------------
+    # ------------------ ПРОЙТИ ЩЕ РАЗ ------------------
     if text == "Пройти тест ще раз":
         last_test = user_data[user_id].get("last_finished_test")
         if not last_test:
@@ -176,7 +191,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data[user_id]["active_test"] = last_test
         await update.message.reply_text(
             "Починаємо заново:\n\n" + data["questions"][0]["question"],
-            reply_markup=question_keyboard()
+            reply_markup=get_keyboard(in_test_menu=True)
         )
         return
 
@@ -190,11 +205,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text("Натисни 'Продовжуємо'.")
         return
     if data["index"] >= len(data["questions"]):
-        await update.message.reply_text("Тест уже завершено.")
+        await update.message.reply_text("Тест вже завершено.")
         return
 
-    correct = data["questions"][data["index"]]["answer"]
-    if text.strip().upper() == correct.upper():
+    correct = data["questions"][data["index"]]["answer"].upper()
+    if text.upper() == correct:
         data["score"] += 1
         await update.message.reply_text("✅ Правильно!")
     else:
@@ -202,22 +217,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         data["wrong"].append(data["questions"][data["index"]])
 
     data["index"] += 1
+
     if data["index"] < len(data["questions"]):
         await update.message.reply_text(
             data["questions"][data["index"]]["question"],
-            reply_markup=question_keyboard()
+            reply_markup=get_keyboard(in_test_menu=True)
         )
     else:
         await update.message.reply_text(
             f"🎉 Тест {current_test} завершено!\n{data['score']}/{len(data['questions'])}"
         )
         user_data[user_id]["last_finished_test"] = current_test
-
         keyboard = []
         if data["wrong"]:
             keyboard.append(["Повторити помилки"])
         keyboard.append(["Пройти тест ще раз"])
-        keyboard.append(["Головне меню"])
+        other_tests = [t for t in TESTS if t != current_test]
+        keyboard.append(other_tests)
         await update.message.reply_text(
             "Що далі?",
             reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
