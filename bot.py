@@ -56,9 +56,7 @@ def question_keyboard(question_text, paused=False):
     extra_buttons = []
     if paused:
         extra_buttons.append("Продовжуємо")
-    extra_buttons.append("Поки що все")
     extra_buttons.append("Головне меню")
-    keyboard.append(extra_buttons)
 
     return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
 
