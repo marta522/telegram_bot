@@ -37,12 +37,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
 
     if text in ["Тест 1", "Тест 2", "Тест 3"]:
-        file = f"{text.lower().replace(' ', '')}.txt"
-        questions = load_questions(file)
-        random.shuffle(questions)
-        user_data[user_id] = {"questions": questions, "index": 0, "score": 0}
-        await update.message.reply_text("Починаємо тест!\n\n" + questions[0]["question"])
-        return
+    file = f"test{text[-1]}.txt"  
+    questions = load_questions(file)
+    random.shuffle(questions)
+    user_data[user_id] = {"questions": questions, "index": 0, "score": 0}
+    await update.message.reply_text("Починаємо тест!\n\n" + questions[0]["question"])
+    return
 
     if user_id not in user_data:
         await update.message.reply_text("Натисни /start і обери тест")
