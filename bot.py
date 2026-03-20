@@ -3,7 +3,7 @@ import random
 from flask import Flask, request
 from waitress import serve
 from telegram import Update, Bot
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes, Dispatcher
+from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
 
 TOKEN = "8732864420:AAFgNLzg5GKJ8F63anr_SmKPygpRvSX27Tc"
 WEBHOOK_PATH = f"/webhook/{TOKEN}"
