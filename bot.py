@@ -1,6 +1,5 @@
 import os
 import random
-import json
 import logging
 from telegram import Update, ReplyKeyboardMarkup
 from telegram.ext import (
@@ -12,24 +11,14 @@ from telegram.ext import (
 )
 
 TOKEN = "8732864420:AAFgNLzg5GKJ8F63anr_SmKPygpRvSX27Tc"
-DATA_FILE = "user_data.json"
-user_data = {}
+
 logging.basicConfig(level=logging.INFO)
 
-# ------------------ Завантаження/збереження ------------------
-def load_user_data():
-    global user_data
-    if os.path.exists(DATA_FILE):
-        with open(DATA_FILE, "r", encoding="utf-8") as f:
-            user_data = json.load(f)
-    else:
-        user_data = {}
+# Зберігаємо дані користувачів
+user_data = {}
 
-def save_user_data():
-    with open(DATA_FILE, "w", encoding="utf-8") as f:
-        json.dump(user_data, f, ensure_ascii=False)
+# ------------------ Функції бота ------------------
 
-# ------------------ Функції ------------------
 def load_questions(filename):
     questions = []
     with open(filename, "r", encoding="utf-8") as f:
@@ -41,90 +30,77 @@ def load_questions(filename):
             questions.append({"question": q_text, "answer": answer})
     return questions
 
+def build_test_keyboard(current_test=None):
+    # Завжди доступні кнопки «Поки що все» і «Статистика»
+    keyboard = [["Поки що все"], ["Статистика"]]
+    # Додаємо інші тести, крім поточного
+    for test in ["Тест 1", "Тест 2", "Тест 3"]:
+        if test != current_test:
+            keyboard.append([test])
+    return ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
+
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    user_data.pop(user_id, None)
     keyboard = [["Тест 1", "Тест 2"], ["Тест 3"]]
     reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-    user_id = str(update.effective_user.id)
-    if user_id in user_data:
-        # При старті дозволяємо продовжити перерваний тест
-        data = user_data[user_id]
-        if data.get("paused"):
-            keyboard = [["Продовжуємо"]]
-            reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-            await update.message.reply_text("Є перерваний тест. Натисни 'Продовжуємо', щоб продовжити.", reply_markup=reply_markup)
-            return
     await update.message.reply_text("Обери тест:", reply_markup=reply_markup)
 
-# ------------------ Основний обробник ------------------
 async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    user_id = str(update.effective_user.id)
+    user_id = update.effective_user.id
     text = update.message.text.strip()
 
-    if user_id not in user_data:
-        user_data[user_id] = {
-            "stats": {"test1": {"passed":0,"total":0},
-                      "test2": {"passed":0,"total":0},
-                      "test3": {"passed":0,"total":0}}
-        }
-
-    data = user_data[user_id]
-
-    # ------------------ Продовження після паузи ------------------
-    if data.get("paused") and text == "Продовжуємо":
-        data["paused"] = False
-        keyboard = [["Поки що все"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text(data["questions"][data["index"]]["question"],
-                                        reply_markup=reply_markup)
-        save_user_data()
-        return
-
-    # ------------------ Кнопка Поки що все ------------------
-    if text == "Поки що все" and "questions" in data:
-        data["paused"] = True
-        keyboard = [["Продовжуємо"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text("⏸ Перерва. Коли захочеш, натисни 'Продовжуємо'.",
-                                        reply_markup=reply_markup)
-        save_user_data()
-        return
+    # ------------------ Якщо користувач на паузі ------------------
+    if user_id in user_data and user_data[user_id].get("paused"):
+        if text == "Продовжуємо":
+            user_data[user_id]["paused"] = False
+            data = user_data[user_id]
+            index = data["index"]
+            await update.message.reply_text(
+                data["questions"][index]["question"],
+                reply_markup=build_test_keyboard(current_test=data["current_test"])
+            )
+            return
+        elif text in ["Тест 1", "Тест 2", "Тест 3"]:
+            # Обирає інший тест
+            await start_test(update, text)
+            return
+        elif text == "Статистика":
+            await show_statistics(update, user_id)
+            return
+        else:
+            await update.message.reply_text("Натисни кнопку для дії.")
+            return
 
     # ------------------ Статистика ------------------
     if text == "Статистика":
-        stats_text = "\n".join([f"{t.capitalize()}: {v['passed']}/{v['total']}" for t,v in data["stats"].items()])
-        await update.message.reply_text(f"📊 Статистика:\n{stats_text}")
+        await show_statistics(update, user_id)
+        return
+
+    # ------------------ Пауза ------------------
+    if text == "Поки що все":
+        if user_id not in user_data:
+            await update.message.reply_text("Ще не обрано тест. Натисни /start")
+            return
+        user_data[user_id]["paused"] = True
+        await update.message.reply_text(
+            "Тест призупинено. Коли захочеш продовжити – натисни кнопку «Продовжуємо».",
+            reply_markup=ReplyKeyboardMarkup([["Продовжуємо"]], resize_keyboard=True)
+        )
         return
 
     # ------------------ Вибір тесту ------------------
-    if text in ["Тест 1","Тест 2","Тест 3"]:
-        file = f"test{text[-1]}.txt"
-        if not os.path.exists(file):
-            await update.message.reply_text(f"Файл {file} не знайдено!")
-            return
-        questions = load_questions(file)
-        random.shuffle(questions)
-        data.update({
-            "all_questions": questions[:],
-            "questions": questions[:],
-            "index": 0,
-            "score": 0,
-            "wrong": [],
-            "current_test": text,
-            "paused": False,
-            "repeat_options": False
-        })
-        keyboard = [["Поки що все"], ["Статистика"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text("Починаємо тест!\n\n" + questions[0]["question"],
-                                        reply_markup=reply_markup)
-        save_user_data()
+    if text in ["Тест 1", "Тест 2", "Тест 3"]:
+        await start_test(update, text)
         return
 
-    # ------------------ Обробка відповіді ------------------
-    if "questions" not in data or data["index"] >= len(data["questions"]):
+    # ------------------ Якщо тест ще не обраний ------------------
+    if user_id not in user_data or "questions" not in user_data[user_id]:
         await update.message.reply_text("Натисни /start і обери тест")
         return
 
+    # ------------------ Обробка відповіді ------------------
+    data = user_data[user_id]
     current = data["index"]
     questions = data["questions"]
     correct = questions[current]["answer"]
@@ -138,32 +114,70 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     data["index"] += 1
 
-    # ------------------ Наступне питання або завершення ------------------
     if data["index"] < len(questions):
-        keyboard = [["Поки що все"], ["Статистика"]]
-        reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text(questions[data["index"]]["question"], reply_markup=reply_markup)
+        await update.message.reply_text(
+            questions[data["index"]]["question"],
+            reply_markup=build_test_keyboard(current_test=data["current_test"])
+        )
     else:
-        # Збереження статистики
-        key = f"test{data['current_test'][-1]}"
-        data["stats"][key]["passed"] += data["score"]
-        data["stats"][key]["total"] = len(data["all_questions"])
+        # ------------------ Завершення тесту ------------------
+        all_q = len(data["questions"])
+        score = data["score"]
+        # Запам’ятовуємо статистику
+        if "stats" not in user_data[user_id]:
+            user_data[user_id]["stats"] = {}
+        user_data[user_id]["stats"][data["current_test"]] = f"{score} з {all_q}"
 
-        await update.message.reply_text(f"🎉 Тест завершено!\nРезультат: {data['score']}/{len(questions)}")
-
-        # Пропозиції дій після завершення
-        keyboard = [["Поки що все", "Статистика"]]
+        # Пропонуємо повторити або інші дії
+        keyboard = [["Пройти тест ще раз"]]
         if data["wrong"]:
             keyboard.insert(0, ["Повторити помилки"])
-        keyboard.append([t for t in ["Тест 1","Тест 2","Тест 3"] if t != data["current_test"]])
+        # Додаємо інші тести
+        for test in ["Тест 1", "Тест 2", "Тест 3"]:
+            if test != data["current_test"]:
+                keyboard.append([test])
         reply_markup = ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
-        await update.message.reply_text("Що хочеш зробити далі?", reply_markup=reply_markup)
+        await update.message.reply_text(
+            f"🎉 Тест завершено!\nРезультат: {score}/{all_q}\nЩо хочеш зробити далі?",
+            reply_markup=reply_markup
+        )
+        # Маркер повторного вибору
         data["repeat_options"] = True
-    save_user_data()
 
-# ------------------ Запуск ------------------
+# ------------------ Додаткові функції ------------------
+
+async def start_test(update: Update, text: str):
+    user_id = update.effective_user.id
+    file = f"test{text[-1]}.txt"
+    if not os.path.exists(file):
+        await update.message.reply_text(f"Файл {file} не знайдено!")
+        return
+    questions = load_questions(file)
+    random.shuffle(questions)
+    user_data[user_id] = {
+        "all_questions": questions[:],
+        "questions": questions[:],
+        "index": 0,
+        "score": 0,
+        "wrong": [],
+        "current_test": text,
+        "paused": False
+    }
+    await update.message.reply_text(
+        "Починаємо тест!\n\n" + questions[0]["question"],
+        reply_markup=build_test_keyboard(current_test=text)
+    )
+
+async def show_statistics(update: Update, user_id):
+    stats = user_data.get(user_id, {}).get("stats", {})
+    msg = "📊 Статистика:\n"
+    for test in ["Тест 1", "Тест 2", "Тест 3"]:
+        msg += f"{test}: {stats.get(test, '0 з 0')}\n"
+    await update.message.reply_text(msg)
+
+# ------------------ Запуск бота через webhook ------------------
+
 if __name__ == "__main__":
-    load_user_data()
     port = int(os.environ.get("PORT", 5000))
     public_url = os.environ.get("RENDER_EXTERNAL_URL")
     if not public_url:
