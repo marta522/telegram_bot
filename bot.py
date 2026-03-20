@@ -2,7 +2,13 @@ import os
 import random
 import logging
 from telegram import Update, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
+)
 
 TOKEN = "8732864420:AAFgNLzg5GKJ8F63anr_SmKPygpRvSX27Tc"
 user_data = {}
@@ -10,7 +16,7 @@ user_data = {}
 logging.basicConfig(level=logging.INFO)
 
 TESTS = ["Тест 1", "Тест 2", "Тест 3"]
-OPTIONS = ["A", "B", "C", "D", "E"]
+OPTIONS = ["A", "B", "C", "D", "E"]  # Кнопки для відповідей
 
 # ------------------ ФУНКЦІЇ ------------------
 
@@ -26,14 +32,15 @@ def load_questions(filename):
     return questions
 
 def main_menu_keyboard():
-    return ReplyKeyboardMarkup([["Тест 1", "Тест 2", "Тест 3"]], resize_keyboard=True)
+    # Головне меню з тестами та кнопкою назад
+    return ReplyKeyboardMarkup([["Тест 1", "Тест 2", "Тест 3"], ["Назад"]], resize_keyboard=True)
 
 def question_keyboard(paused=False, current_test=None):
     if paused:
         return ReplyKeyboardMarkup([["Продовжуємо"], ["Головне меню"]], resize_keyboard=True)
     else:
-        # Кнопки відповіді A/B/C/D/E + "Поки що все" + "Головне меню"
-        buttons = [[opt] for opt in OPTIONS]
+        # Кнопки відповідей в один ряд горизонтально
+        buttons = [OPTIONS]  # [["A","B","C","D","E"]]
         buttons.append(["Поки що все"])
         buttons.append(["Головне меню"])
         return ReplyKeyboardMarkup(buttons, resize_keyboard=True)
@@ -42,7 +49,7 @@ def question_keyboard(paused=False, current_test=None):
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text(
-        "Вітаю! Обери тест:",
+        "Обери тест:",
         reply_markup=main_menu_keyboard()
     )
 
@@ -55,9 +62,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if user_id not in user_data:
         user_data[user_id] = {}
 
-    # ------------------ ГОЛОВНЕ МЕНЮ ------------------
-    if text == "Головне меню":
-        await update.message.reply_text("Оберіть тест:", reply_markup=main_menu_keyboard())
+    # ------------------ НАЗАД ------------------
+    if text == "Назад" or text == "Головне меню":
+        await update.message.reply_text(
+            "Повернулися на стартову сторінку:",
+            reply_markup=main_menu_keyboard()
+        )
         return
 
     # ------------------ ПРОДОВЖИТИ ------------------
@@ -67,13 +77,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await update.message.reply_text("Немає активного тесту.")
             return
         data = user_data[user_id][current_test]
+        data["paused"] = False
         if data["index"] >= len(data["questions"]):
             await update.message.reply_text("Тест уже завершено.")
             return
-        data["paused"] = False
         await update.message.reply_text(
             "Продовжуємо:\n\n" + data["questions"][data["index"]]["question"],
-            reply_markup=question_keyboard(paused=False, current_test=current_test)
+            reply_markup=question_keyboard(current_test=current_test)
         )
         return
 
@@ -81,7 +91,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if text in TESTS:
         current_test = text
         user_data[user_id]["active_test"] = current_test
-
         if current_test not in user_data[user_id]:
             file = f"test{current_test[-1]}.txt"
             if not os.path.exists(file):
@@ -97,15 +106,13 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
                 "wrong": [],
                 "paused": False
             }
-
         data = user_data[user_id][current_test]
         if data["index"] >= len(data["questions"]):
             await update.message.reply_text("Тест уже завершено. Обери дію нижче.")
             return
-
         await update.message.reply_text(
             data["questions"][data["index"]]["question"],
-            reply_markup=question_keyboard(paused=False, current_test=current_test)
+            reply_markup=question_keyboard(current_test=current_test)
         )
         return
 
@@ -141,11 +148,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data[user_id]["active_test"] = last_test
         await update.message.reply_text(
             "Повторюємо помилки:\n\n" + data["questions"][0]["question"],
-            reply_markup=question_keyboard(paused=False, current_test=last_test)
+            reply_markup=question_keyboard(current_test=last_test)
         )
         return
 
-    # ------------------ ПРОЙТИ ЩЕ РАЗ ------------------
+    # ------------------ ПРОЙТИ ТЕСТ ЗНОВУ ------------------
     if text == "Пройти тест ще раз":
         last_test = user_data[user_id].get("last_finished_test")
         if not last_test:
@@ -160,7 +167,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         user_data[user_id]["active_test"] = last_test
         await update.message.reply_text(
             "Починаємо заново:\n\n" + data["questions"][0]["question"],
-            reply_markup=question_keyboard(paused=False, current_test=last_test)
+            reply_markup=question_keyboard(current_test=last_test)
         )
         return
 
@@ -169,17 +176,18 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if not current_test:
         await update.message.reply_text("Обери тест.")
         return
-
     data = user_data[user_id][current_test]
     if data["paused"]:
         await update.message.reply_text("Натисни 'Продовжуємо'.")
         return
     if data["index"] >= len(data["questions"]):
-        await update.message.reply_text("Тест вже завершено.")
+        await update.message.reply_text("Тест уже завершено.")
         return
 
     correct = data["questions"][data["index"]]["answer"]
-    if text.upper() == correct:
+
+    # Порівняння відповіді з підтримкою англійських та українських букв, великих/малих
+    if text.strip().upper() == correct.upper():
         data["score"] += 1
         await update.message.reply_text("✅ Правильно!")
     else:
@@ -191,7 +199,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if data["index"] < len(data["questions"]):
         await update.message.reply_text(
             data["questions"][data["index"]]["question"],
-            reply_markup=question_keyboard(paused=False, current_test=current_test)
+            reply_markup=question_keyboard(current_test=current_test)
         )
     else:
         await update.message.reply_text(
@@ -199,7 +207,6 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         user_data[user_id]["last_finished_test"] = current_test
 
-        # Кнопки після завершення тесту
         keyboard = []
         if data["wrong"]:
             keyboard.append(["Повторити помилки"])
@@ -209,6 +216,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
             "Що далі?",
             reply_markup=ReplyKeyboardMarkup(keyboard, resize_keyboard=True)
         )
+
         data["paused"] = True
         data["index"] = len(data["questions"])
 
@@ -217,9 +225,11 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     public_url = os.environ.get("RENDER_EXTERNAL_URL")
+
     app_bot = ApplicationBuilder().token(TOKEN).build()
     app_bot.add_handler(CommandHandler("start", start))
     app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+
     app_bot.run_webhook(
         listen="0.0.0.0",
         port=port,
