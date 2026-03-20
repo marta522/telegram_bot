@@ -223,7 +223,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
     else:
         await update.message.reply_text(
-            f"🎉 Тест {current_test} завершено!\n{data['score']}/{len(data['questions'])}"
+            f"🎉 {current_test} завершено!\n{data['score']}/{len(data['questions'])}"
         )
         user_data[user_id]["last_finished_test"] = current_test
         keyboard = []
