@@ -67,10 +67,12 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
 # ------------------ Flask сервер ------------------
 
 flask_app = Flask(__name__)
+
 bot = Bot(TOKEN)
 app_bot = ApplicationBuilder().token(TOKEN).build()
-app_bot.add_handler(CommandHandler("start", start))
-app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
+dispatcher = app_bot.dispatcher
+dispatcher.add_handler(CommandHandler("start", start))
+dispatcher.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
 @flask_app.route("/")
 def home():
@@ -78,8 +80,9 @@ def home():
 
 @flask_app.route(WEBHOOK_PATH, methods=["POST"])
 def webhook():
+    """Обробка Telegram webhook POST"""
     update = Update.de_json(request.get_json(force=True), bot)
-    asyncio.create_task(app_bot.update_queue.put(update))
+    asyncio.run(dispatcher.process_update(update))
     return "OK"
 
 # ------------------ Запуск ------------------
@@ -88,6 +91,9 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     public_url = os.environ.get("RENDER_EXTERNAL_URL")
     if public_url:
-        bot.set_webhook(f"{public_url}{WEBHOOK_PATH}")
+        # Асинхронно встановлюємо webhook
+        asyncio.run(bot.set_webhook(f"{public_url}{WEBHOOK_PATH}"))
         print("Webhook set to:", f"{public_url}{WEBHOOK_PATH}")
+
+    # Запускаємо Flask через Waitress
     serve(flask_app, host="0.0.0.0", port=port)
