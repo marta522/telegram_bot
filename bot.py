@@ -1,17 +1,20 @@
 import os
 import random
-import asyncio
-from flask import Flask, request
-from waitress import serve
-from telegram import Update, Bot, ReplyKeyboardMarkup
-from telegram.ext import ApplicationBuilder, CommandHandler, MessageHandler, filters, ContextTypes
+from telegram import Update, ReplyKeyboardMarkup
+from telegram.ext import (
+    ApplicationBuilder,
+    CommandHandler,
+    MessageHandler,
+    filters,
+    ContextTypes
+)
 
-# ------------------ Налаштування ------------------
 TOKEN = "8732864420:AAFgNLzg5GKJ8F63anr_SmKPygpRvSX27Tc"
-WEBHOOK_PATH = f"/webhook/{TOKEN}"
+
 user_data = {}
 
 # ------------------ Функції бота ------------------
+
 def load_questions(filename):
     questions = []
     with open(filename, "r", encoding="utf-8") as f:
@@ -63,37 +66,23 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE):
         await update.message.reply_text(f"🎉 Тест завершено!\nРезультат: {data['score']}/{len(questions)}")
         del user_data[user_id]
 
-# ------------------ Flask сервер ------------------
-flask_app = Flask(__name__)
-bot = Bot(TOKEN)
-app_bot = ApplicationBuilder().token(TOKEN).build()
+# ------------------ Запуск бота через webhook ------------------
 
-# Додаємо хендлери без dispatcher
-app_bot.add_handler(CommandHandler("start", start))
-app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
-
-@flask_app.route("/")
-def home():
-    return "Bot is running!"
-
-@flask_app.route(WEBHOOK_PATH, methods=["POST"])
-def webhook():
-    update = Update.de_json(request.get_json(force=True), bot)
-    # Додаємо апдейт у внутрішню чергу Application
-    asyncio.create_task(app_bot.update_queue.put(update))
-    return "OK"
-
-# ------------------ Запуск ------------------
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     public_url = os.environ.get("RENDER_EXTERNAL_URL")
-    if public_url:
-        # Використовуємо await через asyncio.run для set_webhook
-        async def set_webhook():
-            await bot.set_webhook(f"{public_url}{WEBHOOK_PATH}")
-            print("Webhook set to:", f"{public_url}{WEBHOOK_PATH}")
+    if not public_url:
+        print("⚠️ Не знайдено RENDER_EXTERNAL_URL. Вебхук працювати не буде!")
+        exit(1)
 
-        asyncio.run(set_webhook())
+    app_bot = ApplicationBuilder().token(TOKEN).build()
+    app_bot.add_handler(CommandHandler("start", start))
+    app_bot.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_message))
 
-    # Запуск Flask через Waitress
-    serve(flask_app, host="0.0.0.0", port=port)
+    # Запускаємо webhook
+    app_bot.run_webhook(
+        listen="0.0.0.0",
+        port=port,
+        url_path=TOKEN,
+        webhook_url=f"{public_url}/{TOKEN}"
+    )
